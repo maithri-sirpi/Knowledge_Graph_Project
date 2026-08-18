@@ -24,50 +24,64 @@ function GraphViewerInner({ graphData, apiBaseUrl, onRefreshStats }) {
   const [selectedNode, setSelectedNode] = useState(null);
   const { fitView } = useReactFlow();
 
-  // Dynamic color generation palette
+  // Standard fixed colors for standard categories
+  const standardColors = {
+    person: { bg: 'linear-gradient(135deg, #be123c, #f43f5e)', color: '#f43f5e' },
+    animal: { bg: 'linear-gradient(135deg, #b45309, #f59e0b)', color: '#f59e0b' },
+    place: { bg: 'linear-gradient(135deg, #047857, #10b981)', color: '#10b981' },
+    location: { bg: 'linear-gradient(135deg, #047857, #10b981)', color: '#10b981' },
+    object: { bg: 'linear-gradient(135deg, #1d4ed8, #3b82f6)', color: '#3b82f6' },
+    event: { bg: 'linear-gradient(135deg, #6d28d9, #8b5cf6)', color: '#8b5cf6' },
+    unknown: { bg: 'linear-gradient(135deg, #374151, #6b7280)', color: '#6b7280' },
+    entity: { bg: 'linear-gradient(135deg, #374151, #6b7280)', color: '#6b7280' }
+  };
+
+  // Distinct palette colors for custom dynamically-extracted categories
   const dynamicPalettes = [
-    { bg: 'linear-gradient(135deg, #1e3a8a, #3b82f6)', color: '#3b82f6' }, // Blue
-    { bg: 'linear-gradient(135deg, #064e3b, #10b981)', color: '#10b981' }, // Emerald
-    { bg: 'linear-gradient(135deg, #4c1d95, #8b5cf6)', color: '#8b5cf6' }, // Violet
-    { bg: 'linear-gradient(135deg, #831843, #f43f5e)', color: '#f43f5e' }, // Rose
-    { bg: 'linear-gradient(135deg, #78350f, #f59e0b)', color: '#f59e0b' }, // Amber
     { bg: 'linear-gradient(135deg, #0f766e, #14b8a6)', color: '#14b8a6' }, // Teal
     { bg: 'linear-gradient(135deg, #581c87, #d946ef)', color: '#d946ef' }, // Fuchsia
     { bg: 'linear-gradient(135deg, #1e3a8a, #6366f1)', color: '#6366f1' }, // Indigo
-    { bg: 'linear-gradient(135deg, #3f6212, #84cc16)', color: '#84cc16' }  // Lime
+    { bg: 'linear-gradient(135deg, #3f6212, #84cc16)', color: '#84cc16' }, // Lime
+    { bg: 'linear-gradient(135deg, #0284c7, #38bdf8)', color: '#38bdf8' }, // Sky Blue
+    { bg: 'linear-gradient(135deg, #7c2d12, #ff7849)', color: '#ff7849' }  // Coral
   ];
 
-  // Colors mapping for display
-  const colors = {
-    Person: '#f43f5e',
-    Animal: '#f59e0b',
-    Place: '#10b981',
-    Object: '#3b82f6',
-    Event: '#8b5cf6',
-    Unknown: '#6b7280'
-  };
+  // 1. Compute all unique categories currently in the graph
+  const uniqueTypes = React.useMemo(() => {
+    if (!graphData || !graphData.nodes) return [];
+    const typesSet = new Set();
+    graphData.nodes.forEach(n => {
+      if (n.type) {
+        typesSet.add(n.type.trim());
+      }
+    });
+    return Array.from(typesSet);
+  }, [graphData]);
+
+  // 2. Generate a custom type-to-color style mapping dynamically
+  const typeStyles = React.useMemo(() => {
+    const mapping = {};
+    let customTypeIndex = 0;
+
+    uniqueTypes.forEach(rawType => {
+      const cleanType = rawType.toLowerCase();
+      if (standardColors[cleanType]) {
+        mapping[rawType] = standardColors[cleanType];
+      } else {
+        const palette = dynamicPalettes[customTypeIndex % dynamicPalettes.length];
+        mapping[rawType] = palette;
+        customTypeIndex++;
+      }
+    });
+
+    return mapping;
+  }, [uniqueTypes]);
 
   const getStyleForType = (type) => {
-    switch (type) {
-      case 'Person':
-        return { background: 'linear-gradient(135deg, #be123c, #f43f5e)' };
-      case 'Animal':
-        return { background: 'linear-gradient(135deg, #b45309, #f59e0b)' };
-      case 'Place':
-        return { background: 'linear-gradient(135deg, #047857, #10b981)' };
-      case 'Object':
-        return { background: 'linear-gradient(135deg, #1d4ed8, #3b82f6)' };
-      case 'Event':
-        return { background: 'linear-gradient(135deg, #6d28d9, #8b5cf6)' };
-      case 'Entity':
-      case 'Unknown':
-        return { background: 'linear-gradient(135deg, #374151, #6b7280)' };
-      default:
-        // Use hash of the type string to pick a consistent color from the palette
-        const hash = stringHash(type || 'Unknown');
-        const palette = dynamicPalettes[hash % dynamicPalettes.length];
-        return { background: palette.bg, borderColor: palette.color };
+    if (typeStyles[type]) {
+      return { background: typeStyles[type].bg, borderColor: typeStyles[type].color };
     }
+    return { background: 'linear-gradient(135deg, #374151, #6b7280)' };
   };
 
   // Re-generate nodes and edges when data updates
@@ -320,16 +334,26 @@ function GraphViewerInner({ graphData, apiBaseUrl, onRefreshStats }) {
           )}
         </div>
 
-        {/* Legend */}
+        {/* Dynamic Legend */}
         <div className="glass-card">
           <h3>Legend</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
-            {Object.keys(colors).map(type => (
+            {Object.keys(typeStyles).map(type => (
               <div key={type} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: colors[type] }}></span>
-                <span style={{ fontSize: '0.9rem', color: 'var(--color-text)' }}>{type}</span>
+                <span style={{ 
+                  width: '12px', 
+                  height: '12px', 
+                  borderRadius: '50%', 
+                  background: typeStyles[type].bg 
+                }}></span>
+                <span style={{ fontSize: '0.9rem', color: 'var(--color-text)', textTransform: 'capitalize' }}>
+                  {type.toLowerCase()}
+                </span>
               </div>
             ))}
+            {Object.keys(typeStyles).length === 0 && (
+              <p style={{ color: 'var(--color-text-muted)', fontStyle: 'italic', fontSize: '0.85rem' }}>No categories to display</p>
+            )}
           </div>
         </div>
 

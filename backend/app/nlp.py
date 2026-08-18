@@ -230,7 +230,7 @@ def extract_via_gemini(text: str) -> ExtractionResponse:
     prompt = _get_llm_prompt(text)
     
     model = genai.GenerativeModel(
-        model_name="gemini-1.5-flash",
+        model_name="gemini-2.5-flash",
         generation_config={"response_mime_type": "application/json"}
     )
     

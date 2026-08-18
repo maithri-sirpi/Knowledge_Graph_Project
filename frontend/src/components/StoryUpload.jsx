@@ -59,7 +59,7 @@ const SAMPLE_KANNADA_STORY = `ಒಂದಾನೊಂದು ಕಾಲದಲ್ಲ�
 
 export default function StoryUpload({ onExtracted, apiBaseUrl }) {
   const [story, setStory] = useState('');
-  const [useLlm, setUseLlm] = useState(false);
+  const [useLlm, setUseLlm] = useState(true);
   const [llmProvider, setLlmProvider] = useState('gemini');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
