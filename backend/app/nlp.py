@@ -87,24 +87,43 @@ Kannada Text:
 """
 
 def extract_via_gemini(text: str) -> ExtractionResponse:
-    import google.generativeai as genai
-    
     if not settings.GEMINI_API_KEY:
         raise ValueError("Gemini API key is not configured.")
         
-    genai.configure(api_key=settings.GEMINI_API_KEY)
-    
     prompt = _get_llm_prompt(text)
     
-    model = genai.GenerativeModel(
-        model_name="gemini-2.5-flash",
-        generation_config={"response_mime_type": "application/json"}
-    )
+    from google import genai
+    from google.genai import types
+    import time
+
+    client = genai.Client(api_key=settings.GEMINI_API_KEY)
     
-    response = model.generate_content(prompt)
-    data = json.loads(response.text)
-    
-    return _parse_llm_response(text, data, "gemini")
+    candidate_models = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash"]
+    last_exception = None
+
+    for model_name in candidate_models:
+        for attempt in range(2):
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json"
+                    )
+                )
+                data = json.loads(response.text)
+                return _parse_llm_response(text, data, "gemini")
+            except Exception as e:
+                last_exception = e
+                err_msg = str(e)
+                if "503" in err_msg or "high demand" in err_msg.lower() or "unavailable" in err_msg.lower():
+                    logger.warning(f"Gemini model '{model_name}' busy (503/high demand), attempt {attempt+1}. Retrying...")
+                    time.sleep(1.5)
+                else:
+                    logger.warning(f"Model '{model_name}' returned error: {e}. Trying next fallback model...")
+                    break
+
+    raise RuntimeError(f"Gemini API is temporarily busy. Please try again in a few seconds. (Error: {last_exception})")
 
 def extract_via_openai(text: str) -> ExtractionResponse:
     from openai import OpenAI

@@ -3,7 +3,9 @@ uvicorn
 pydantic
 pydantic-settings
 neo4j
+google-genai
 google-generativeai
+
 openai
 python-multipart
 python-dotenv

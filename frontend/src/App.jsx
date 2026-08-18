@@ -9,7 +9,8 @@ import {
   BarChart3,
   Server,
   Sparkles,
-  Database
+  Database,
+  History
 } from 'lucide-react';
 
 import StoryUpload from './components/StoryUpload';
@@ -18,6 +19,7 @@ import RelationshipViewer from './components/RelationshipViewer';
 import TripleViewer from './components/TripleViewer';
 import GraphViewer from './components/GraphViewer';
 import StatsDashboard from './components/StatsDashboard';
+import HistoryViewer from './components/HistoryViewer';
 
 const API_BASE_URL = 'http://localhost:8000';
 
@@ -37,7 +39,17 @@ export default function App() {
     unique_nodes: 0,
     unique_edges: 0
   });
+  const [isProcessingStory, setIsProcessingStory] = useState(false);
   const [dbConnected, setDbConnected] = useState(false);
+  const [history, setHistory] = useState(() => {
+    try {
+      const saved = localStorage.getItem('kannada_kg_history');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      console.error("Failed to parse history from localStorage", e);
+      return [];
+    }
+  });
 
   // Check backend and Neo4j connectivity
   const checkConnection = async () => {
@@ -95,27 +107,87 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  const handleExtracted = (data) => {
+  const handleExtracted = (data, storyText, llmProvider) => {
     setExtractedData(data);
     
     // Convert extracted data straight to temporary nodes and links for display 
     // before the user decides to sync with Neo4j
     const nodes = data.entities.map(e => ({ id: e.name, label: e.name, type: e.type }));
     const links = data.relationships.map(r => ({ source: r.subject, target: r.object, type: r.predicate }));
-    setGraphData({ nodes, links });
+    const newGraphData = { nodes, links };
+    setGraphData(newGraphData);
 
     // Update local stats display
     const uniqueNodes = new Set(data.entities.map(e => e.name)).size;
-    setStats({
+    const computedStats = {
       total_sentences: data.sentences.length,
       total_entities: data.entities.length,
       total_relationships: data.relationships.length,
       unique_nodes: uniqueNodes,
       unique_edges: data.relationships.length
-    });
+    };
+    setStats(computedStats);
+
+    // Save item to history
+    if (storyText) {
+      const firstLine = storyText.split('\n')[0].trim() || 'Kannada Story';
+      const title = firstLine.length > 60 ? firstLine.substring(0, 60) + '...' : firstLine;
+      const historyItem = {
+        id: Date.now().toString(),
+        timestamp: new Date().toLocaleString(),
+        title,
+        story: storyText,
+        llmProvider: llmProvider || 'gemini',
+        extractedData: data,
+        graphData: newGraphData,
+        stats: computedStats
+      };
+
+      setHistory(prev => {
+        const updated = [historyItem, ...prev];
+        try {
+          localStorage.setItem('kannada_kg_history', JSON.stringify(updated));
+        } catch (err) {
+          console.error("Failed to save history to localStorage", err);
+        }
+        return updated;
+      });
+    }
     
     // Auto redirect to Graph viewer so they can see the draft graph
     setActiveTab('graph');
+  };
+
+  const handleSelectHistoryItem = (item) => {
+    if (item.extractedData) {
+      setExtractedData(item.extractedData);
+    }
+    if (item.graphData) {
+      setGraphData(item.graphData);
+    }
+    if (item.stats) {
+      setStats(item.stats);
+    }
+    setActiveTab('graph');
+  };
+
+  const handleDeleteHistoryItem = (id) => {
+    setHistory(prev => {
+      const updated = prev.filter(item => item.id !== id);
+      try {
+        localStorage.setItem('kannada_kg_history', JSON.stringify(updated));
+      } catch (err) {
+        console.error("Failed to update history in localStorage", err);
+      }
+      return updated;
+    });
+  };
+
+  const handleClearHistory = () => {
+    if (window.confirm("Are you sure you want to clear all story history?")) {
+      setHistory([]);
+      localStorage.removeItem('kannada_kg_history');
+    }
   };
 
   const refreshStats = () => {
@@ -137,9 +209,16 @@ export default function App() {
                 Automatically process Kannada narratives, extract entities (Persons, Animals, Places) 
                 and semantic relationships to build an interactive, downloadable Neo4j Knowledge Graph.
               </p>
-              <button className="btn btn-primary" onClick={() => setActiveTab('upload')}>
-                <UploadCloud size={16} /> Get Started - Upload Story
-              </button>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '16px' }}>
+                <button className="btn btn-primary" onClick={() => setActiveTab('upload')}>
+                  <UploadCloud size={16} /> Get Started - Upload Story
+                </button>
+                {history.length > 0 && (
+                  <button className="btn btn-secondary" onClick={() => setActiveTab('history')}>
+                    <History size={16} /> View History ({history.length})
+                  </button>
+                )}
+              </div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
@@ -167,8 +246,16 @@ export default function App() {
             </div>
           </div>
         );
-      case 'upload':
-        return <StoryUpload onExtracted={handleExtracted} apiBaseUrl={API_BASE_URL} />;
+      case 'history':
+        return (
+          <HistoryViewer 
+            history={history} 
+            onSelectHistoryItem={handleSelectHistoryItem}
+            onDeleteHistoryItem={handleDeleteHistoryItem}
+            onClearHistory={handleClearHistory}
+            onNavigateToUpload={() => setActiveTab('upload')}
+          />
+        );
       case 'entities':
         return <EntityViewer entities={extractedData.entities} />;
       case 'relationships':
@@ -180,7 +267,7 @@ export default function App() {
       case 'stats':
         return <StatsDashboard stats={stats} apiBaseUrl={API_BASE_URL} />;
       default:
-        return <div>Tab not found</div>;
+        return null;
     }
   };
 
@@ -212,9 +299,30 @@ export default function App() {
             <button 
               className={`nav-item ${activeTab === 'upload' ? 'active' : ''}`}
               onClick={() => setActiveTab('upload')}
-              style={{ background: 'none', border: 'none', width: '100%', textAlign: 'left' }}
+              style={{ background: 'none', border: 'none', width: '100%', textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
             >
-              <UploadCloud size={18} /> Upload Story
+              <span style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <UploadCloud size={18} /> Upload Story
+              </span>
+              {isProcessingStory && (
+                <span className="spinner" style={{ width: '14px', height: '14px' }}></span>
+              )}
+            </button>
+          </li>
+          <li>
+            <button 
+              className={`nav-item ${activeTab === 'history' ? 'active' : ''}`}
+              onClick={() => setActiveTab('history')}
+              style={{ background: 'none', border: 'none', width: '100%', textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <History size={18} /> Story History
+              </span>
+              {history.length > 0 && (
+                <span style={{ fontSize: '0.75rem', background: 'rgba(59,130,246,0.2)', color: '#60a5fa', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
+                  {history.length}
+                </span>
+              )}
             </button>
           </li>
           <li>
@@ -276,8 +384,45 @@ export default function App() {
 
       {/* Main container */}
       <div className="main-content">
-        {renderContent()}
+        {/* Background processing banner */}
+        {isProcessingStory && (
+          <div className="glass-card" style={{ 
+            marginBottom: '20px', 
+            background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(139, 92, 246, 0.15))',
+            borderColor: 'rgba(59, 130, 246, 0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            justify: 'space-between',
+            padding: '14px 20px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <span className="spinner" style={{ width: '18px', height: '18px' }}></span>
+              <div>
+                <strong style={{ color: '#60a5fa' }}>Processing Kannada Story in Background...</strong>
+                <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginTop: '2px' }}>
+                  Extracting entities and relationships. You can freely navigate other sections—we will automatically open the Knowledge Graph once complete!
+                </div>
+              </div>
+            </div>
+            <button className="btn btn-secondary" style={{ padding: '6px 14px', fontSize: '0.85rem' }} onClick={() => setActiveTab('upload')}>
+              View Upload Status
+            </button>
+          </div>
+        )}
+
+        {/* Story Upload Component (kept mounted so state and async extraction request are preserved) */}
+        <div style={{ display: activeTab === 'upload' ? 'block' : 'none' }}>
+          <StoryUpload 
+            onExtracted={handleExtracted} 
+            apiBaseUrl={API_BASE_URL} 
+            onLoadingChange={setIsProcessingStory}
+          />
+        </div>
+
+        {/* Other Tab Views */}
+        {activeTab !== 'upload' && renderContent()}
       </div>
     </div>
   );
 }
+

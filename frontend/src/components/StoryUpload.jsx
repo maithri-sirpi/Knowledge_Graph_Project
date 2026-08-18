@@ -57,7 +57,7 @@ const SAMPLE_KANNADA_STORY = `ಒಂದಾನೊಂದು ಕಾಲದಲ್ಲ�
 ಆ ನಂತರ ಅವರು ಕಾಡಿನಲ್ಲಿ ಸಂತೋಷದಿಂದ ಜೀವನ ನಡೆಸಿದರು.
 ನೀತಿ: ಸಣ್ಣ ಸಹಾಯವೂ ದೊಡ್ಡ ಉಪಕಾರವಾಗಬಹುದು. ಒಳ್ಳೆಯತನ ಮತ್ತು ದಯೆ ಎಂದಿಗೂ ವ್ಯರ್ಥವಾಗುವುದಿಲ್ಲ.`;
 
-export default function StoryUpload({ onExtracted, apiBaseUrl }) {
+export default function StoryUpload({ onExtracted, apiBaseUrl, onLoadingChange }) {
   const [story, setStory] = useState('');
   const [useLlm, setUseLlm] = useState(true);
   const [llmProvider, setLlmProvider] = useState('gemini');
@@ -77,6 +77,7 @@ export default function StoryUpload({ onExtracted, apiBaseUrl }) {
     }
 
     setLoading(true);
+    onLoadingChange?.(true);
     setError('');
     setSentences([]);
 
@@ -99,12 +100,13 @@ export default function StoryUpload({ onExtracted, apiBaseUrl }) {
 
       const data = await response.json();
       setSentences(data.sentences);
-      onExtracted(data);
+      onExtracted(data, story, llmProvider);
     } catch (err) {
       console.error(err);
       setError(err.message || 'An error occurred during extraction.');
     } finally {
       setLoading(false);
+      onLoadingChange?.(false);
     }
   };
 
