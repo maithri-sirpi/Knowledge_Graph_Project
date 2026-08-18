@@ -28,140 +28,7 @@ def segment_sentences(text: str) -> List[TextSegment]:
             
     return sentences
 
-def extract_local_fallback(text: str) -> ExtractionResponse:
-    sentences = segment_sentences(text)
-    
-    def clean_kannada_word(word: str) -> Tuple[str, str]:
-        suffixes = [
-            ("ಗಳನ್ನು", "OBJECT"), ("ವನ್ನು", "OBJECT"), ("ನಲ್ಲಿ", "PLACE"),
-            ("ದಲ್ಲಿ", "PLACE"), ("ಅಲ್ಲಿ", "PLACE"), ("ಊರು", "PLACE"),
-            ("ಪಟ್ಟಣ", "PLACE"), ("ಅನ್ನು", "OBJECT"), ("ನಿಗೆ", "PERSON"),
-            ("ಳಿಗೆ", "PERSON"), ("ಗಾಗಿ", "EVENT"), ("ದಿಂದ", "EVENT"),
-            ("ಇಂದ", "EVENT"), ("ಕ್ಕೆ", "OBJECT"), ("ಗಳು", "OBJECT"),
-            ("ನು", "PERSON"), ("ಅವರು", "PERSON"), ("ವರು", "PERSON"),
-            ("ವು", "ANIMAL"), ("ಗೆ", "OBJECT"), ("ರ", "PERSON"),
-            ("ದ", "OBJECT"), ("ಯ", "OBJECT"), ("ನ", "PERSON"), 
-            ("ನನ್ನು", "PERSON"), ("ಂಗೆ", "PERSON"), ("ಪುರ", "PLACE"),
-            ("ನಗರ", "PLACE")
-        ]
-        
-        w_clean = re.sub(r'[^\u0c80-\u0cff]', '', word).strip()
-        if len(w_clean) <= 2:
-            return w_clean, "OBJECT"
-            
-        detected_type = "OBJECT"
-        for suf, etype in suffixes:
-            if w_clean.endswith(suf) and len(w_clean) > len(suf) + 1:
-                w_clean = w_clean[:-len(suf)]
-                detected_type = etype
-                break
-                
-        return w_clean, detected_type
 
-    stop_words = {"ಒಂದು", "ಮತ್ತು", "ತುಂಬಾ", "ತನ್ನ", "ಅವನು", "ಅವಳು", "ಅವರು", "ಇದು", "ಅದು", "ಆದರೆ", "ಹಾಗೂ", "ಆಗ", "ಈಗ", "ಆತ", "ಆಕೆ", "ಇವನು", "ಇವಳು", "ತಮ್ಮ", "ಅವನ", "ಆತನ", "ಆಕೆಯ"}
-    verb_suffixes = ("ಿದ್ದ", "ತ್ತಿದ್ದ", "ತ್ತಾನೆ", "ಿದನು", "ದ್ದಾನೆ", "ತ್ತಾರೆ", "ಬಹದು", "ಆಗಿದೆ", "ದನು", "ಳು", "ತು", "ದರು", "ಯಿತು", "ದವು", "ಯಿತು")
-
-    word_freqs = {}
-    word_types = {}
-    
-    raw_words = text.split()
-    
-    for w in raw_words:
-        base, etype = clean_kannada_word(w)
-        is_verb = any(base.endswith(s) or w.endswith(s) for s in verb_suffixes)
-        if len(base) > 2 and base not in stop_words and not is_verb:
-            word_freqs[base] = word_freqs.get(base, 0) + 1
-            if base not in word_types or etype != "OBJECT":
-                word_types[base] = etype
-                
-    candidate_entities = []
-    for base, freq in word_freqs.items():
-        etype = word_types.get(base, "OBJECT")
-        if freq >= 2 or (etype != "OBJECT" and len(base) >= 3):
-            candidate_entities.append(Entity(name=base, type=etype, aliases=[]))
-            
-    if not candidate_entities:
-        sorted_words = sorted(word_freqs.items(), key=lambda x: x[1], reverse=True)[:10]
-        for base, freq in sorted_words:
-            etype = word_types.get(base, "OBJECT")
-            candidate_entities.append(Entity(name=base, type=etype, aliases=[]))
-            
-    valid_entity_names = {e.name for e in candidate_entities}
-    relationships = []
-    
-    # Generic verb list for fallback
-    verbs = [
-        ("ವಾಸಿಸು", "lives_in"), ("ಸಹಾಯ", "helped"), ("ಸ್ನೇಹ", "friend_of"),
-        ("ಹೋಗು", "travels_to"), ("ಬರು", "visits"), ("ಮಾಡು", "did"),
-        ("ಹೇಳು", "speaks_to"), ("ಕೇಳು", "asks"), ("ನೋಡು", "sees"),
-        ("ಮದುವೆ", "married"), ("ಹುಟ್ಟು", "born_to"), ("ಕೊಡು", "gave"),
-        ("ತಗೋ", "took"), ("ಆಳು", "rules"), ("ಕಲಿ", "learns")
-    ]
-    
-    for seg in sentences:
-        words_in_sentence = seg.text.split()
-        found_entities = []
-        for i, word in enumerate(words_in_sentence):
-            base, _ = clean_kannada_word(word)
-            if base in valid_entity_names:
-                found_entities.append((base, i))
-                
-        for idx in range(len(found_entities) - 1):
-            e1_name, pos1 = found_entities[idx]
-            e2_name, pos2 = found_entities[idx+1]
-            
-            if e1_name == e2_name:
-                continue
-                
-            distance = abs(pos2 - pos1)
-            if distance <= 10:
-                window_words = words_in_sentence[max(0, pos1-3):min(len(words_in_sentence), pos2+4)]
-                window_text = " ".join(window_words)
-                
-                pred = "related_to" 
-                for v, rel in verbs:
-                    if v in window_text:
-                        pred = rel
-                        break
-                        
-                t2 = word_types.get(e2_name, "OBJECT")
-                if t2 == "PLACE" and pred == "related_to":
-                    pred = "located_in"
-                
-                relationships.append(Relationship(
-                    subject=e1_name, 
-                    predicate=pred, 
-                    object=e2_name,
-                    confidence=0.5,
-                    source_text=seg.text,
-                    extraction_method="heuristic",
-                    uncertain=True
-                ))
-
-    # De-duplicate relationships
-    unique_rels = []
-    seen = set()
-    for r in relationships:
-        key = (r.subject, r.predicate, r.object)
-        if key not in seen:
-            seen.add(key)
-            unique_rels.append(r)
-            
-    if not unique_rels and len(candidate_entities) >= 2:
-        for i in range(len(candidate_entities) - 1):
-            e1 = candidate_entities[i].name
-            e2 = candidate_entities[i+1].name
-            unique_rels.append(Relationship(
-                subject=e1, predicate="related_to", object=e2,
-                confidence=0.3, extraction_method="heuristic", uncertain=True
-            ))
-            
-    return ExtractionResponse(
-        sentences=sentences,
-        entities=candidate_entities,
-        relationships=unique_rels,
-        triples=unique_rels
-    )
 
 def _get_llm_prompt(text: str) -> str:
     return f"""
@@ -315,26 +182,17 @@ def _parse_llm_response(text: str, data: Dict[str, Any], provider: str) -> Extra
     )
 
 def process_story(payload: StoryPayload) -> ExtractionResponse:
-    if not payload.use_llm:
-        logger.info("Using local fallback extractor (heuristic)")
-        return extract_local_fallback(payload.text)
+    if payload.llm_provider == "gemini":
+        if not settings.GEMINI_API_KEY:
+            raise ValueError("Gemini API key is not configured in your backend/.env file.")
+        logger.info("Extracting using Google Gemini API")
+        return extract_via_gemini(payload.text)
         
-    if payload.llm_provider == "gemini" and settings.GEMINI_API_KEY:
-        try:
-            logger.info("Extracting using Google Gemini API")
-            return extract_via_gemini(payload.text)
-        except Exception as e:
-            logger.error(f"Gemini API call failed: {e}. Falling back to local extractor.")
-            return extract_local_fallback(payload.text)
-            
-    elif payload.llm_provider == "openai" and settings.OPENAI_API_KEY:
-        try:
-            logger.info("Extracting using OpenAI API")
-            return extract_via_openai(payload.text)
-        except Exception as e:
-            logger.error(f"OpenAI API call failed: {e}. Falling back to local extractor.")
-            return extract_local_fallback(payload.text)
-            
+    elif payload.llm_provider == "openai":
+        if not settings.OPENAI_API_KEY:
+            raise ValueError("OpenAI API key is not configured in your backend/.env file.")
+        logger.info("Extracting using OpenAI API")
+        return extract_via_openai(payload.text)
+        
     else:
-        logger.warning("No valid API Key provided. Defaulting to local fallback extractor.")
-        return extract_local_fallback(payload.text)
+        raise ValueError(f"Unsupported LLM provider: {payload.llm_provider}")

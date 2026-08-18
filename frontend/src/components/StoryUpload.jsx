@@ -133,38 +133,19 @@ export default function StoryUpload({ onExtracted, apiBaseUrl }) {
               Clear
             </button>
           </div>
-
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={useLlm}
-                onChange={(e) => setUseLlm(e.target.checked)}
-              />
-              <span>Use LLM Extractor</span>
-            </label>
-
-            {useLlm && (
-              <select
-                className="input-field"
-                style={{ width: '120px', padding: '6px 12px' }}
-                value={llmProvider}
-                onChange={(e) => setLlmProvider(e.target.value)}
-              >
-                <option value="gemini">Gemini API</option>
-                <option value="openai">OpenAI GPT</option>
-              </select>
-            )}
+            <span style={{ fontSize: '0.9rem', color: 'var(--color-text-muted)' }}>LLM Provider:</span>
+            <select
+              className="input-field"
+              style={{ width: '120px', padding: '6px 12px' }}
+              value={llmProvider}
+              onChange={(e) => setLlmProvider(e.target.value)}
+            >
+              <option value="gemini">Gemini API</option>
+              <option value="openai">OpenAI GPT</option>
+            </select>
           </div>
         </div>
-
-        {useLlm && (
-          <div className="glass-card" style={{ padding: '12px 16px', marginBottom: '20px', background: 'rgba(245, 158, 11, 0.05)', borderColor: 'rgba(245, 158, 11, 0.2)' }}>
-            <p style={{ margin: 0, fontSize: '0.85rem', color: '#fde047', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <AlertTriangle size={16} /> Ensure API keys are set up in backend .env file for LLM extraction. Otherwise, it will fall back to local parsing.
-            </p>
-          </div>
-        )}
 
         <button 
           className="btn btn-primary" 
